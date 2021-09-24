@@ -6,6 +6,8 @@ if version[0] <= 0 and version[1] < 9:
 else:
     from torchtext.legacy import data, datasets
 
+PAD, BOS, EOS = 1,2,3
+
 class DataLoader():
     '''
     train_fn : train-path without extentions
