@@ -34,6 +34,7 @@ class Attention(nn.Module):
         return self_attn
 
 
+
 class MultiHead(nn.Module):
     '''
         hidden_size : hidden size of one head
