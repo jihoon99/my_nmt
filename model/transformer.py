@@ -151,11 +151,12 @@ class DecoderBlock(nn.Module):
         if prev_tensor is None:
             
             z = self.masked_layernorm(x)
-            z = z + self.masked_dropout(
-                            self.masked_multihead(z, 
-                                           z, 
-                                           z, 
-                                           mask = future_mask))
+            z = x + self.masked_dropout(
+                            self.masked_multihead(
+                                z, 
+                                z, 
+                                z, 
+                                mask = future_mask))
         # inferencing
         else:
             # here x work differently
@@ -164,16 +165,76 @@ class DecoderBlock(nn.Module):
             # |future_mask| = None
 
             normed_prev_tensor = self.masked_layernorm(prev_tensor)
+            z = self.masked_layernorm(x) # |b, 1, hs|
+            z = x + self.masked_dropout(
+                            self.masked_multihead(
+                                z, 
+                                normed_prev_tensor,
+                                normed_prev_tensor,
+                                mask = None)) # mask is not need since it's AR inferencing
 
-            z = self.masked_layernorm(x) # |b, 1, 
-            z = z+self.masked_dropout(
-                            self.masked_multihead()
-            )
-            
+        normed_key_value = self.attn_layernorm(key_value)
+        z_ = self.attn_layernorm(z)
+        z = z + self.attn_dropout(self.multihead(
+                                        z_,               # |b, m, hs
+                                        normed_key_value, # |b, n, hs|
+                                        normed_key_value,
+                                        mask = mask))
+        # z : |b, m, hs|, m = 1 when inferencing
+
+        z = z + self.attn_dropout(self.fc(self.fc_norm(z)))
+
+        return z, key_value, prev_tensor, mask, future_mask
+
+
+class CustomSequential(nn.Sequential):
+
+    def forward(self, *x):
+        for block in self._modules.values():
+            x = block(*x)
+
+        return x
 
 
 
+class Transformer(nn.Module):
 
+    def __init__(
+            self,
+            input_size,
+            output_size,
+            hidden_size,
+            n_splits,
+            dropout_p,
+            num_enc_layer,
+            num_dec_layer,
+            use_leaky_relu,
+
+            ):
+
+        super().__init__()
+
+        self.hidden_size = hidden_size
+        self.n_splits = n_splits
+        self.dropout_p = dropout_p
+        self.num_enc_layer = num_enc_layer
+
+
+        self.embed_enc = nn.Linear(input_size, hidden_size)
+        self.embed_dec = nn.Linear(output_size, hidden_size)
+        self.emb_dropout = nn.Dropout(dropout_p)
+
+        # starts from here
+        # self.pos_enc = 
+
+        self.Encoder = CustomSequential(
+                            *[EncoderBlock(hidden_size, n_splits, dropout_p, use_leaky_relu)
+                            for _ in range(num_enc_layer)])
+
+        self.Decoder = CustomSequential(
+                            *[DecoderBlock(hidden_size, n_splits, dropout_p, use_leaky_relu)
+                            for _ in range(num_dec_layer)]                    
+                            )
 
 
 
@@ -221,4 +282,3 @@ if __name__ == '__main__':
     encoderblock = EncoderBlock(hidden_size,4,dropout_p=0.1,use_leaky_relu=True)
     result = encoderblock(input_, mask = None)
     print(result[0].shape)
-    
