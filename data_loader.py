@@ -27,7 +27,7 @@ class DataLoader():
                 valid_fn = None,
                 exts = None,
                 batch_size = 64,
-                device = 'cpu',
+                device = -1,
                 max_vocab = 9999999999,
                 max_length = 255,
                 fix_length = None,
@@ -43,6 +43,7 @@ class DataLoader():
         self.src_field = data.Field(sequential=True,
                                 use_vocab=True,
                                 batch_first = True,
+                                include_lengths = True,
                                 fix_length = fix_length,
                                 init_token = '<BOS>' if use_bos else None,
                                 eos_token = '<EOS>' if use_eos else None)
@@ -50,6 +51,7 @@ class DataLoader():
         self.tgt_field = data.Field(sequential=True,
                                 use_vocab = True,
                                 batch_first = True,
+                                include_lengths = True,
                                 fix_length = fix_length,
                                 init_token = '<BOS>' if use_bos else None,
                                 eos_token = '<EOS>' if use_eos else None)
@@ -140,12 +142,15 @@ if __name__ == '__main__':
         device = -1
     )
 
-    print(len(loader.src_field.vocab))
-    print(len(loader.tgt_field.vocab))
+    # print(len(loader.src_field.vocab))
+    # print(len(loader.tgt_field.vocab))
 
     for batch_index, batch in enumerate(loader.train_iter):
-        print(batch.src)
-        print(batch.tgt)
+        # print(batch.src)
+        # print(batch.tgt)
 
         if batch_index > 1:
-            break
+            break   
+
+    # print(batch)
+    # print(batch.src)
