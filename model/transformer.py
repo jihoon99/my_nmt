@@ -26,7 +26,7 @@ class Attention(nn.Module):
 
         if mask is not None: # mask : [bs, m, n]
             assert numerator.size() == mask.size()
-            numerator.masked_fill_(mask, int('-inf'))
+            numerator.masked_fill_(mask, float('-inf'))
 
         numerator = self.softmax(numerator)                   # |numerator| : [bs, m, n]
         self_attn = torch.bmm(numerator, VW)                  # |self_attn| : [bs, m, hs/n_splits]
@@ -159,7 +159,7 @@ class DecoderBlock(nn.Module):
                                 mask = future_mask))
         # inferencing
         else:
-            # here x work differently
+            # here x works differently
             # |x|           =  |b, 1, hs|
             # |prev|        =  |b, t-1, hs|
             # |future_mask| = None
@@ -188,7 +188,7 @@ class DecoderBlock(nn.Module):
 
 
 class CustomSequential(nn.Sequential):
-
+    # since nn.Sequential class does not provide multiple input arguments and returns.
     def forward(self, *x):
         for block in self._modules.values():
             x = block(*x)
@@ -205,6 +205,7 @@ class Transformer(nn.Module):
             output_size,
             hidden_size,
             n_splits,
+            max_length,
             dropout_p,
             num_enc_layer,
             num_dec_layer,
@@ -219,13 +220,12 @@ class Transformer(nn.Module):
         self.dropout_p = dropout_p
         self.num_enc_layer = num_enc_layer
 
-
-        self.embed_enc = nn.Linear(input_size, hidden_size)
-        self.embed_dec = nn.Linear(output_size, hidden_size)
+        self.embed_enc = nn.Embedding(input_size, hidden_size)
+        self.embed_dec = nn.Embedding(output_size, hidden_size)
         self.emb_dropout = nn.Dropout(dropout_p)
 
-        # starts from here
-        # self.pos_enc = 
+        self.pos_enc = self._positional_encoding_(hidden_size,max_length)
+
 
         self.Encoder = CustomSequential(
                             *[EncoderBlock(hidden_size, n_splits, dropout_p, use_leaky_relu)
@@ -235,6 +235,70 @@ class Transformer(nn.Module):
                             *[DecoderBlock(hidden_size, n_splits, dropout_p, use_leaky_relu)
                             for _ in range(num_dec_layer)]                    
                             )
+        
+        self.generator = nn.Sequential(
+                                nn.LayerNorm(hidden_size),
+                                nn.Linear(hidden_size, output_size),
+                                nn.LogSoftMax(dim = -1)        
+                                )
+
+    @torch.no_grad()
+    def _positional_encoding_(self, hidden_size, max_length):
+        '''
+        this is for training
+
+        예) pos = 3(word) // dim_idx = 2 = 2*i
+                    pos
+            sin( ---------  )
+                    10^4(2*i/d)
+
+        returning : [max_length, hs]
+        '''
+        empty = torch.FloatTensor(max_length, hidden_size).zero_()
+        
+        pos = torch.arange(0, max_length).unsqueeze(-1).float()    # |max_length, 1|
+        dim = torch.arange(0, hidden_size//2).unsqueeze(0).float() # |1, hidden_size//2|
+        
+        empty[:, 0::2] = torch.sin(pos/1e+4**dim.div(float(hidden_size)))
+        empty[:, 1::2] = torch.cos(pos/1e+4**dim.div(float(hidden_size)))
+
+        return empty
+    
+
+    # me
+    @torch.no_grad()
+    def _generate_mask_(self, length):
+        mask = []
+
+        max_length = max(length)
+
+        for l in length:
+            if max_length - l >0:
+                # l is smaaller than max_length
+                tmp_tensor = torch.zeros([max_length])
+                tmp_tensor[l:] = 1
+                mask += [tmp_tensor.unsqueeze(0).bool()]
+
+            else:
+                mask += [torch.zeros([max_length]).unsqueeze(0).bool()]
+
+        mask = torch.cat(mask, dim = 0)
+        return mask
+
+    
+    @torch.no_grad()
+    def _positional_encoding_inf_(self, hidden_size, max_length):
+        print(1)
+
+    def forward(self, x, y):
+        # embed for encoder
+        x[0] = self.embed_enc(x[0])
+
+        with torch.no_grad():
+            mask = self._generate_mask_(x[1]) # |batch, n|
+            mask_enc = mask.unsqueeze(1).expand(*x[0].size(), mask.size(-1)) # |batch, 1, n| expand to [|batch, n| * n(mask.size(-1))]
+            mask_dec = mask.unsqueeze(1).expand(*y.size(), mask.size(-1)) # |bs, m, n|
+        
 
 
 
@@ -243,6 +307,8 @@ if __name__ == '__main__':
     sys.path.append('/home/rainism/Desktop/projects/my_nmt/')
     from data_loader import DataLoader
     
+    # print(torch.arange(0, 100).shape)
+
     # python data_loader.py ./data/corpus.shuf.test.tok.bpe ./data/corpus.shuf.test.tok.bpe en ko
     loader = DataLoader(
         '/home/rainism/Desktop/projects/my_nmt/data/corpus.shuf.test.tok.bpe',
@@ -250,35 +316,48 @@ if __name__ == '__main__':
         ('en', 'ko'),
         device = -1
     )
-    print(len(loader.src_field.vocab))
-    print(len(loader.tgt_field.vocab))
 
-    for batch_index, batch in enumerate(loader.train_iter):
 
-        print(f'batch src')
-        print(batch.src)
-        print(f'printing shape of batch.src : {batch.src.shape}')
-        print('-----------------------------------------------')
-        print(f'batch tgt')
-        print(f'printing shape of batch.tgt : {batch.tgt.shape}')
-        print(batch.tgt)
+    # # print(len(loader.src_field.vocab))
+    # # print(len(loader.tgt_field.vocab))
 
-        if batch_index > 0:
-            break  
+    # for batch_index, batch in enumerate(loader.train_iter):
+
+    #     # print(f'batch src')
+    #     # print(batch.src)
+    #     # print(f'printing shape of batch.src : {batch.src.shape}')
+    #     # print('-----------------------------------------------')
+    #     # print(f'batch tgt')
+    #     # print(f'printing shape of batch.tgt : {batch.tgt.shape}')
+    #     # print(batch.tgt)
+
+    #     if batch_index > 0:
+    #         break  
     
-    input_size = len(loader.src_field.vocab)
-    output_size = len(loader.tgt_field.vocab)
-    input_ = batch.src
-    output_ = batch.src
-    
-    hidden_size = 128
-    embed = nn.Embedding(input_size, hidden_size)
-    input_ = embed(input_)
-    # print(f'shape of inpu_ {input_.shape}')
+    # input_size = len(loader.src_field.vocab)
+    # output_size = len(loader.tgt_field.vocab)
+    # x = batch.src
+    # y = batch.tgt
 
-    # multi = MultiHead(hidden_size, 4)
-    # multi_output = multi(input_, input_, input_, mask=None)
-    # print(multi_output)
-    encoderblock = EncoderBlock(hidden_size,4,dropout_p=0.1,use_leaky_relu=True)
-    result = encoderblock(input_, mask = None)
-    print(result[0].shape)
+    # # print(batch.src)
+    # hidden_size = 128
+    # embed = nn.Embedding(input_size, hidden_size)
+    # input_ = embed(x[0])
+    # # print(f'shape of inpu_ {input_.shape}')
+
+    # embed2 = nn.Embedding(output_size, hidden_size)
+    # output_ = embed2(y[0])
+
+    # # # multi = MultiHead(hidden_size, 4)
+    # # # multi_output = multi(input_, input_, input_, mask=None)
+    # # # print(multi_output)
+    # encoderblock = EncoderBlock(hidden_size,4,dropout_p=0.1,use_leaky_relu=True)
+    # result = encoderblock(input_, mask = None)
+
+    # decoderblock = DecoderBlock(hidden_size, 4, dropout_p=0.1, use_leaky_relu=False)
+
+
+    # future_mask = torch.triu(x[0].new_ones((y[0].size(1), y[0].size(1))), diagonal=1).bool() # triangle upper
+    # future_mask = future_mask.unsqueeze(0).expand(y[0].size(0), *future_mask.size())
+    # result1 = decoderblock(output_, result[0], None, mask = None, future_mask = future_mask)
+
