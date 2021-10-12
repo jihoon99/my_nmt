@@ -26,7 +26,7 @@ class Attention(nn.Module):
 
         if mask is not None: # mask : [bs, m, n]
             assert numerator.size() == mask.size()
-            numerator.masked_fill_(mask, float('-inf'))
+            numerator.masked_fill_(mask, -float('inf'))
 
         numerator = self.softmax(numerator)                   # |numerator| : [bs, m, n]
         self_attn = torch.bmm(numerator, VW)                  # |self_attn| : [bs, m, hs/n_splits]
@@ -203,12 +203,11 @@ class Transformer(nn.Module):
             output_size,
             hidden_size,
             n_splits,
-            max_length,
-            dropout_p,
-            num_enc_layer,
-            num_dec_layer,
-            use_leaky_relu,
-
+            max_length=512,
+            dropout_p=0.1,
+            num_enc_layer=6,
+            num_dec_layer=6,
+            use_leaky_relu=False,
             ):
 
         super().__init__()
@@ -287,22 +286,24 @@ class Transformer(nn.Module):
         x : x[0] tensor
         length : x[1] length
         '''
-
         mask = []
 
         max_length = max(length)
-
         for l in length:
-            if max_length - l >0:
-                # l is smaaller than max_length
-                tmp_tensor = x.new_zeros([max_length])
-                tmp_tensor[l:] = 1
-                mask += [tmp_tensor.unsqueeze(0).bool()]
-
+            if max_length - l > 0:
+                # If the length is shorter than maximum length among samples,
+                # set last few values to be 1s to remove attention weight.
+                mask += [torch.cat([x.new_ones(1, l).zero_(),
+                                    x.new_ones(1, (max_length - l))
+                                    ], dim=-1)]
             else:
-                mask += [torch.zeros([max_length]).unsqueeze(0).bool()]
+                # If length of sample equals to maximum length among samples,
+                # set every value in mask to be 0.
+                mask += [x.new_ones(1, l).zero_()]
 
-        mask = torch.cat(mask, dim = 0)
+        mask = torch.cat(mask, dim=0).bool()
+        # |mask| = (batch_size, max_length)
+
         return mask
 
 
@@ -343,70 +344,74 @@ class Transformer(nn.Module):
         return dz
 
 
+# beam search
+# rl learning
 
-if __name__ == '__main__':
-    import sys
-    sys.path.append('/home/rainism/Desktop/projects/my_nmt/')
-    from data_loader import DataLoader
+
+
+# if __name__ == '__main__':
+    # import sys
+    # sys.path.append('/home/rainism/Desktop/projects/my_nmt/')
+    # from data_loader import DataLoader
     
-    # print(torch.arange(0, 100).shape)
+    # # print(torch.arange(0, 100).shape)
 
-    # python data_loader.py ./data/corpus.shuf.test.tok.bpe ./data/corpus.shuf.test.tok.bpe en ko
-    loader = DataLoader(
-        '/home/rainism/Desktop/projects/my_nmt/data/corpus.shuf.test.tok.bpe',
-        '/home/rainism/Desktop/projects/my_nmt/data/corpus.shuf.test.tok.bpe',
-        ('en', 'ko'),
-        device = -1
-    )
+    # # python data_loader.py ./data/corpus.shuf.test.tok.bpe ./data/corpus.shuf.test.tok.bpe en ko
+    # loader = DataLoader(
+    #     '/home/rainism/Desktop/projects/my_nmt/data/corpus.shuf.test.tok.bpe',
+    #     '/home/rainism/Desktop/projects/my_nmt/data/corpus.shuf.test.tok.bpe',
+    #     ('en', 'ko'),
+    #     device = -1
+    # )
 
 
 
-    # print(len(loader.src_field.vocab))
-    # print(len(loader.tgt_field.vocab))
+    # # print(len(loader.src_field.vocab))
+    # # print(len(loader.tgt_field.vocab))
 
-    for batch_index, batch in enumerate(loader.train_iter):
+    # for batch_index, batch in enumerate(loader.train_iter):
 
-        # print(f'batch src')
-        # print(batch.src)
-        # print(f'printing shape of batch.src : {batch.src.shape}')
-        # print('-----------------------------------------------')
-        # print(f'batch tgt')
-        # print(f'printing shape of batch.tgt : {batch.tgt.shape}')
-        # print(batch.tgt)
+    #     # print(f'batch src')
+    #     # print(batch.src)
+    #     # print(f'printing shape of batch.src : {batch.src.shape}')
+    #     # print('-----------------------------------------------')
+    #     # print(f'batch tgt')
+    #     # print(f'printing shape of batch.tgt : {batch.tgt.shape}')
+    #     # print(batch.tgt)
 
-        if batch_index > 0:
-            break  
+    #     if batch_index > 0:
+    #         break  
     
-    input_size = len(loader.src_field.vocab)
-    output_size = len(loader.tgt_field.vocab)
-    x = batch.src
-    y = batch.tgt
+    # input_size = len(loader.src_field.vocab)
+    # output_size = len(loader.tgt_field.vocab)
+    # x = batch.src
+    # y = batch.tgt
 
-    # # print(batch.src)
-    hidden_size = 128
-    # embed = nn.Embedding(input_size, hidden_size)
-    # input_ = embed(x[0])
-    # # print(f'shape of inpu_ {input_.shape}')
+    # # # print(batch.src)
+    # hidden_size = 128
+    # # embed = nn.Embedding(input_size, hidden_size)
+    # # input_ = embed(x[0])
+    # # # print(f'shape of inpu_ {input_.shape}')
 
-    # embed2 = nn.Embedding(output_size, hidden_size)
-    # output_ = embed2(y[0])
+    # # embed2 = nn.Embedding(output_size, hidden_size)
+    # # output_ = embed2(y[0])
 
-    # # # multi = MultiHead(hidden_size, 4)
-    # # # multi_output = multi(input_, input_, input_, mask=None)
-    # # # print(multi_output)
-    # encoderblock = EncoderBlock(hidden_size,4, dropout_p=0.1, use_leaky_relu=True)
-    # result = encoderblock(input_, mask = None)
+    # # # # multi = MultiHead(hidden_size, 4)
+    # # # # multi_output = multi(input_, input_, input_, mask=None)
+    # # # # print(multi_output)
+    # # encoderblock = EncoderBlock(hidden_size,4, dropout_p=0.1, use_leaky_relu=True)
+    # # result = encoderblock(input_, mask = None)
 
-    ## decoder part
-    # decoderblock = DecoderBlock(hidden_size, 4, dropout_p=0.1, use_leaky_relu=False)
-
-
-    # future_mask = torch.triu(x[0].new_ones((y[0].size(1), y[0].size(1))), diagonal=1).bool() # triangle upper
-    # future_mask = future_mask.unsqueeze(0).expand(y[0].size(0), *future_mask.size())
-    # result1 = decoderblock(output_, result[0], None, mask = None, future_mask = future_mask)
+    # ## decoder part
+    # # decoderblock = DecoderBlock(hidden_size, 4, dropout_p=0.1, use_leaky_relu=False)
 
 
+    # # future_mask = torch.triu(x[0].new_ones((y[0].size(1), y[0].size(1))), diagonal=1).bool() # triangle upper
+    # # future_mask = future_mask.unsqueeze(0).expand(y[0].size(0), *future_mask.size())
+    # # result1 = decoderblock(output_, result[0], None, mask = None, future_mask = future_mask)
 
-    TF = Transformer(input_size, output_size, hidden_size, 4, 128, 0.1, 8, 8, True)
-    result = TF(x,y[0][:,1:])
-    print(result)
+
+
+    # TF = Transformer(input_size, output_size, hidden_size, 4, 128, 0.1, 8, 8, True)
+    # result = TF(x,y[0][:,1:])
+    # print(result)
